@@ -1020,6 +1020,8 @@ body {
 }
 
 .action-buttons {
+  position: relative;
+  z-index: 10;
   display: flex;
   gap: 0.5rem;
   width: 100%;
@@ -1170,8 +1172,14 @@ body {
     letter-spacing: 0;
   }
 
-  .card-container {
+  .card-container:not(.expanded) {
     height: 340px; /* Keep consistent default height on mobile */
+  }
+
+  .action-buttons {
+    position: relative;
+    z-index: 10;
+    gap: 0.4rem;
   }
 
   .progress-container {

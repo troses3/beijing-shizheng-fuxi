@@ -407,6 +407,33 @@ function App() {
     setSelectedOption(null);
   }, [selectedCategory]);
 
+  // Dynamic Height & Auto Scroll into view
+  useEffect(() => {
+    if (cardBackInnerRef.current) {
+      const contentHeight = cardBackInnerRef.current.scrollHeight;
+      setCardHeight(`${Math.max(340, contentHeight)}px`);
+    }
+
+    if (selectedOption !== null && (activeMode === 'quiz' || activeMode === 'contrast') && isFlipped) {
+      const scrollTimer = setTimeout(() => {
+        const actionBtnEl = actionButtonsRef.current;
+        const floatingBarEl = document.querySelector('.floating-mode-bar');
+
+        if (actionBtnEl && floatingBarEl) {
+          const btnRect = actionBtnEl.getBoundingClientRect();
+          const floatingRect = floatingBarEl.getBoundingClientRect();
+
+          if (btnRect.bottom > floatingRect.top - 10) {
+            const extraScroll = btnRect.bottom - (floatingRect.top - 15);
+            window.scrollBy({ top: extraScroll, behavior: 'smooth' });
+          }
+        }
+      }, 80);
+
+      return () => clearTimeout(scrollTimer);
+    }
+  }, [isFlipped, selectedOption, currentItem, activeMode]);
+
   // Update example and options when currentItem changes
   useEffect(() => {
     if (!currentItem) return;
@@ -466,47 +493,115 @@ function App() {
 
   const handleNext = (status) => {
     if (!currentItem) return;
-    triggerHaptic('tap');
 
-    // Update status
-    setItems(prevItems => prevItems.map(item => {
-      if (item.word === currentItem.word) {
-        return { ...item, status };
+    if (status === 'known') {
+      triggerHaptic('success');
+    } else if (status === 'unknown') {
+      triggerHaptic('error');
+    } else {
+      triggerHaptic('tap');
+    }
+
+    // 立即翻回正面并重置选项，彻底消除UI滞留与遮挡
+    setIsFlipped(false);
+    setSelectedOption(null);
+
+    // 如果处于搜索独立预览状态，更新状态后直接关闭预览，返回原进度！
+    if (inspectingSearchItem) {
+      const realIndex = items.findIndex(i => i.word === inspectingSearchItem.word && i.group === inspectingSearchItem.group);
+      if (realIndex !== -1) {
+        const updatedItems = [...items];
+        updatedItems[realIndex].status = status;
+        setItems(updatedItems);
       }
-      return item;
-    }));
+      setInspectingSearchItem(null);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    const realIndex = items.findIndex(i => i.word === currentItem.word && i.group === currentItem.group);
+    if (realIndex === -1) return;
+
+    const updatedItems = [...items];
+    updatedItems[realIndex].status = status;
+    setItems(updatedItems);
 
     setHistory(prev => [...prev, currentIndex]);
 
     setTimeout(() => {
       let nextIndex = currentIndex;
-      let candidates = [];
+      let activeFilter = filter;
 
-      currentCategoryItems.forEach((item, index) => {
-        if (filter === 'all' || item.status === filter) {
-          candidates.push(index);
-        }
+      const updatedCategoryItems = updatedItems.filter(item => {
+        if (selectedCategory === 'all') return true;
+        return item.group === selectedCategory || item.chapter === selectedCategory;
       });
 
-      if (candidates.length === 0) {
-        candidates = currentCategoryItems.map((_, i) => i);
-      }
-
-      if (isRandom) {
-        let finalCandidates = candidates;
-        if (candidates.length > 1) {
-          finalCandidates = candidates.filter(idx => idx !== currentIndex);
+      let candidates = [];
+      if (filter !== 'all') {
+        candidates = updatedCategoryItems
+          .map((item, index) => ({ status: item.status, index }))
+          .filter(item => item.status === filter)
+          .map(item => item.index);
+        
+        if (candidates.length === 0) {
+          activeFilter = 'all';
+          setFilter('all');
+          alert(`恭喜！你已复习完该分类下的所有考点，系统已自动切回“全部”模式。`);
         }
-        nextIndex = finalCandidates[Math.floor(Math.random() * finalCandidates.length)];
-      } else {
-        const nextCandidate = candidates.find(idx => idx > currentIndex);
-        nextIndex = nextCandidate !== undefined ? nextCandidate : candidates[0];
       }
-
+      
+      if (activeFilter === 'all') {
+        if (isRandom) {
+          const candidateIndices = [];
+          updatedCategoryItems.forEach((item, index) => {
+            if (item.status !== 'known') {
+              candidateIndices.push(index);
+            }
+          });
+          
+          if (candidateIndices.length > 0) {
+            let finalCandidates = candidateIndices;
+            if (candidateIndices.length > 1) {
+              finalCandidates = candidateIndices.filter(idx => idx !== currentIndex);
+            }
+            nextIndex = finalCandidates[Math.floor(Math.random() * finalCandidates.length)];
+          } else {
+            const allIndices = Array.from({length: updatedCategoryItems.length}, (_, i) => i);
+            const otherIndices = allIndices.filter(idx => idx !== currentIndex);
+            nextIndex = otherIndices.length > 0 
+              ? otherIndices[Math.floor(Math.random() * otherIndices.length)]
+              : 0;
+          }
+        } else {
+          let found = false;
+          for (let i = 0; i < updatedCategoryItems.length; i++) {
+            let checkIndex = (currentIndex + 1 + i) % updatedCategoryItems.length;
+            if (updatedCategoryItems[checkIndex].status !== 'known') {
+              nextIndex = checkIndex;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            nextIndex = (currentIndex + 1) % updatedCategoryItems.length;
+          }
+        }
+      } else {
+        if (isRandom) {
+          let finalCandidates = candidates;
+          if (candidates.length > 1) {
+            finalCandidates = candidates.filter(idx => idx !== currentIndex);
+          }
+          nextIndex = finalCandidates[Math.floor(Math.random() * finalCandidates.length)];
+        } else {
+          const nextCandidate = candidates.find(idx => idx > currentIndex);
+          nextIndex = nextCandidate !== undefined ? nextCandidate : candidates[0];
+        }
+      }
+      
       setCurrentIndex(nextIndex);
-      setIsFlipped(false);
-      setSelectedOption(null);
-    }, 200);
+    }, 150);
   };
 
   const handlePrev = (e) => {
