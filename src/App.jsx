@@ -100,35 +100,72 @@ function SpeedItemCard({ item, idx, globalMasked }) {
     setIsRevealed(!globalMasked);
   }, [globalMasked]);
 
+  // 获取完整句子（若 hint 带下划线则还原为包含考点词的完整句，确保精准内联遮罩）
+  const fullSentence = useMemo(() => {
+    if (item.hint && item.hint.includes('______')) {
+      return item.hint.replace(/______/g, item.word);
+    }
+    if (item.examples && item.examples.length > 0) {
+      return item.examples[0];
+    }
+    return item.meaning || '';
+  }, [item]);
+
+  const escaped = escapeRegExp(item.word);
+  let regex = new RegExp(`(${escaped})`, 'g');
+  if (!regex.test(fullSentence)) {
+    const cleanWord = item.word.replace(/[“”"''《》【】]/g, '');
+    if (cleanWord && cleanWord !== item.word) {
+      const cleanEscaped = escapeRegExp(cleanWord);
+      regex = new RegExp(`([“"《]?${cleanEscaped}[”"》]?)`, 'g');
+    }
+  }
+  const parts = fullSentence.split(regex);
+
+  const toggleReveal = (e) => {
+    e.stopPropagation();
+    triggerHaptic('tap');
+    setIsRevealed(prev => !prev);
+  };
+
   return (
-    <div className="speed-item-card">
-      <div className="speed-item-header">
-        <span className="speed-item-index">#{idx + 1}</span>
-        <span className="speed-item-group">{item.group} · {item.subcategory || ''}</span>
-        <button
-          className={`speed-reveal-btn ${isRevealed ? 'revealed' : ''}`}
-          onClick={() => {
-            triggerHaptic('tap');
-            setIsRevealed(!isRevealed);
-          }}
+    <div className="speed-item-card" onClick={toggleReveal}>
+      <div className="speed-word-row">
+        <span className="speed-label">考点 {idx + 1}</span>
+        <span 
+          className={`speed-blank ${!isRevealed ? 'masked' : 'revealed'}`}
+          onClick={toggleReveal}
+          title={!isRevealed ? '点击揭晓考点词' : '点击遮挡'}
         >
-          {isRevealed ? '隐藏' : '显示考点'}
-        </button>
+          {item.word}
+        </span>
+        <span className="speed-cat-tag">
+          {item.group ? item.group.replace(/[【】]/g, '') : ''} · {item.subcategory || ''}
+        </span>
       </div>
 
-      <div className="speed-item-body">
-        {isRevealed ? (
-          <div className="speed-item-revealed">
-            <span className="speed-item-word">{item.word}</span>
-            <div className="speed-item-text">{renderHighlightedSentence(item.hint || item.meaning, item.word)}</div>
-            <div className="speed-item-meaning">{item.meaning}</div>
-          </div>
-        ) : (
-          <div className="speed-item-masked">
-            <div className="speed-item-text">{renderSentenceWithBlank(item.hint || item.meaning, item.word)}</div>
-          </div>
-        )}
+      <div className="speed-meaning">
+        {parts.map((part, i) => {
+          const isTarget = part === item.word || part.replace(/[“”"''《》【】]/g, '') === item.word.replace(/[“”"''《》【】]/g, '');
+          return isTarget ? (
+            <span 
+              key={i} 
+              className={`speed-inline-blank ${!isRevealed ? 'masked' : 'revealed'}`}
+              title={!isRevealed ? '点击揭晓' : '点击遮挡'}
+            >
+              {part}
+            </span>
+          ) : (
+            <span key={i}>{part}</span>
+          );
+        })}
       </div>
+
+      {isRevealed && item.meaning && item.meaning !== fullSentence && (
+        <div className="speed-detail-meaning">
+          💡 <strong>考点拓展：</strong>{item.meaning}
+        </div>
+      )}
     </div>
   );
 }
